@@ -8,22 +8,24 @@ import torch
 from models.LSTMAE import LSTMAE
 from train_utils import train_model, eval_model
 
-parser = argparse.ArgumentParser(description='LSTM_AE TOY EXAMPLE')
-parser.add_argument('--batch-size', type=int, default=128, metavar='N',
-                    help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=1000, metavar='N', help='number of epochs to train')
-parser.add_argument('--optim', default='Adam', type=str, help='Optimizer to use')
-parser.add_argument('--hidden-size', type=int, default=256, metavar='N', help='LSTM hidden state size')
-parser.add_argument('--lr', type=float, default=0.001, metavar='LR', help='learning rate')
-parser.add_argument('--input-size', type=int, default=1, metavar='N', help='input size')
-parser.add_argument('--dropout', type=float, default=0.0, metavar='D', help='dropout ratio')
-parser.add_argument('--wd', type=float, default=0, metavar='WD', help='weight decay')
-parser.add_argument('--grad-clipping', type=float, default=None, metavar='GC', help='gradient clipping value')
-parser.add_argument('--log-interval', type=int, default=10, metavar='N', help='how many batch iteration to log status')
-parser.add_argument('--model-type', default='LSTMAE', help='currently only LSTMAE')
-parser.add_argument('--model-dir', default='trained_models', help='directory of model for saving checkpoint')
-parser.add_argument('--seq-len', default=50, help='sequence full size')
-parser.add_argument('--run-grid-search', action='store_true', default=False, help='Running hyper-parameters grid search')
+parser = argparse.ArgumentParser(description='LSTM_AE TOY EXAMPLE')  # 建立一个命令行参数解析器，描述为 “LSTM_AE TOY EXAMPLE”
+# 训练控制
+parser.add_argument('--batch-size', type=int, default=128, metavar='N', elp='input batch size for training (default: 128)')  # 每个批次的数据量
+parser.add_argument('--epochs', type=int, default=1000, metavar='N', help='number of epochs to train')  # 总训练轮数，每一轮会遍历完整训练集一次。
+parser.add_argument('--optim', default='Adam', type=str, help='Optimizer to use')  # 默认优化器
+parser.add_argument('--lr', type=float, default=0.001, metavar='LR', help='learning rate')  # 学习率
+parser.add_argument('--wd', type=float, default=0, metavar='WD', help='weight decay')  # 权重衰减（L2 正则化系数），用于防止过拟合
+parser.add_argument('--grad-clipping', type=float, default=None, metavar='GC', help='gradient clipping value')  # 梯度裁剪阈值，避免梯度爆炸
+parser.add_argument('--log-interval', type=int, default=10, metavar='N', help='how many batch iteration to log status')  # 每多少个 batch 打印一次训练日志
+# 模型结构
+parser.add_argument('--hidden-size', type=int, default=256, metavar='N', help='LSTM hidden state size')  # LSTM 隐藏层维度，决定模型容量
+parser.add_argument('--input-size', type=int, default=1, metavar='N', help='input size')  # LSTM 输入特征维度（比如单变量时间序列时是 1，多变量时可设大于 1）
+parser.add_argument('--dropout', type=float, default=0.0, metavar='D', help='dropout ratio')  # dropout 比例，防止过拟合
+parser.add_argument('--model-type', default='LSTMAE', help='currently only LSTMAE')  # 模型类型
+parser.add_argument('--seq-len', default=50, help='sequence full size')  # 输入序列的时间步长度（即 LSTM 每次处理多少时间点）
+# 输出与超参数
+parser.add_argument('--model-dir', default='trained_models', help='directory of model for saving checkpoint')  # 模型 checkpoint 保存路径
+parser.add_argument('--run-grid-search', action='store_true', default=False, help='Running hyper-parameters grid search')  # 是否运行超参数网格搜索
 
 args = parser.parse_args(args=[])
 
@@ -47,25 +49,33 @@ class toy_dataset(torch.utils.data.Dataset):
 
 
 def main():
-    # Create data loaders with anomalies
+    # Create data loaders with anomalies 构建包含异常数据的dataset，包含训练集 (train_iter)、验证集 (val_iter)、测试集 (test_iter)
     train_iter, val_iter, test_iter = create_dataloaders_with_anomalies(args.batch_size)
 
-    # Create model
+    # Create model 模型建立
     model = LSTMAE(input_size=args.input_size, hidden_size=args.hidden_size,
                    dropout_ratio=args.dropout, seq_len=args.seq_len).to(device)
 
-    optimizer = getattr(torch.optim, args.optim)(params=model.parameters(), lr=args.lr, weight_decay=args.wd)
-    criterion = torch.nn.MSELoss(reduction='sum')
+
+    optimizer = getattr(torch.optim, args.optim)(params=model.parameters(), lr=args.lr, weight_decay=args.wd)  # 动态选择优化器，例如 Adam / SGD，由 args.optim 决定
+    criterion = torch.nn.MSELoss(reduction='sum') # 损失函数：采用 MSE (均方误差)，使用 sum 表示误差求和
 
     # Train
+    # 在指定的 epoch 数内，依次执行训练和验证
     for epoch in range(args.epochs):
         train_model(criterion, epoch, model, args.model_type, optimizer, train_iter,
-                    args.batch_size, args.grad_clipping, args.log_interval)
-        eval_model(criterion, model, args.model_type, val_iter)
+                    args.batch_size, args.grad_clipping, args.log_interval)  # 训练模型：计算损失并反向传播
+        eval_model(criterion, model, args.model_type, val_iter)  # 验证模型：在验证集上评估模型性能
 
-    # Test anomaly detection
+    # Test anomaly detection 异常检测 (测试阶段)
+    # 在测试集上进行异常检测，返回：
+    # errors   -> 重建误差值
+    # labels   -> 真实标签 (正常/异常)
+    # preds    -> 模型预测 (正常/异常)
+    # threshold -> 区分正常/异常的阈值
     errors, labels, preds, threshold = detect_anomalies(model, test_iter, criterion)
-    print(f"Detection threshold={threshold:.4f}")
+    print(f"Detection threshold={threshold:.4f}")  # 打印检测阈值
+    # 计算预测精度 (preds 与真实标签 labels 的一致率)
     acc = (preds == labels).mean()
     print(f"Anomaly detection accuracy: {acc:.4f}")
 
