@@ -20,7 +20,7 @@ def lstmae_task(device):
     print(config)
 
     create_model(config)
-    losses = fit(train_iter, val_iter)
+    avg_train_loss, avg_val_loss = fit(train_iter, val_iter)
 
 
 

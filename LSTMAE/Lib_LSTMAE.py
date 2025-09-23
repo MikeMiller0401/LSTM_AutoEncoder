@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
+from jinja2.optimizer import optimize
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -163,58 +165,80 @@ class LSTMAE_Method():
         self.optimizer = getattr(torch.optim, 'Adam')(params=self.model.parameters(), lr=0.001, weight_decay=0)
         self.criterion = nn.MSELoss(reduction='sum')
 
-    def train_with_batch(self, data_batch):
-        self.model.train()
-        outputs = self.model(data_batch)
-        loss = self.criterion(outputs)
-        return loss
+    # 单个 batch 的训练
+    def train_with_batch(self, train_batch_data, device):
+        model = self.model.train()
+        criterion = self.criterion
+        optimizer = self.optimizer
 
 
-    def train(criterion, epoch, model, model_type, optimizer, train_iter, batch_size, clip_val, log_interval,
-                    scheduler=None):
-        loss_sum = 0  # 累计总 loss
-        num_samples_iter = 0  # 当前 epoch 已处理样本数
-        for epoch in range(epoch):
-            train_loss = 0
+        # 解包 batch 数据
+        if isinstance(train_batch_data, (list, tuple)) and len(train_batch_data) == 2:
+            batch_x, batch_y = train_batch_data
+        else:
+            batch_x = train_batch_data
 
+        if isinstance(batch_x, torch.Tensor):
+            tensor_x = batch_x.float().to(device)
+        else:
+            tensor_x = torch.tensor(batch_x, dtype=torch.float, device=device)
 
+        # 前向传播
+        outputs = model(tensor_x)
+        loss = criterion(outputs, tensor_x)
 
-        for batch_idx, data in enumerate(train_iter, 1):
-            if len(data) == 2:
-                data, labels = data[0].to(device), data[1].to(device)
-            else:
-                data = data.to(device)
-            optimizer.zero_grad()  # 训练前清零梯度
-            num_samples_iter += len(data)  # 用于统计已经处理的样本数，用于打印进度和平均 loss
+        # 反向传播
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-            # 前向传播与损失计算
-            model_out = model(data)
-            loss = criterion(model_out, data)
+        return loss.item() * tensor_x.size(0)  # 返回总损失（方便累积后再求平均）
 
-            # Backward pass
-            loss.backward()
-            loss_sum += loss.item()
+    def train(self, train_iter, val_iter):
+        num_epochs = 100 # 训练总epoch数量
+        log_interval = 100 # 记录的log间隔次数
+        for epoch in range(1, num_epochs + 1):
+            # ====== Training ======
+            self.model.train()
+            total_loss = 0
+            num_samples = 0
 
-            # Gradient clipping
-            if clip_val is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), clip_val)
+            for batch_idx, batch_data in enumerate(train_iter, 1):
+                batch_loss = self.train_with_batch(batch_data, self.device)
+                total_loss += batch_loss
+                if isinstance(batch_data, (list, tuple)):
+                    batch_size = len(batch_data[0])
+                else:
+                    batch_size = len(batch_data)
+                num_samples += batch_size
 
-            # Update model params
-            optimizer.step()
+                if batch_idx % log_interval == 0:
+                    print(f"Train Epoch: {epoch} [{num_samples}/{len(train_iter.dataset)} "
+                          f"({100. * num_samples / len(train_iter.dataset):.0f}%)]\t"
+                          f"Loss: {total_loss / num_samples:.6f}")
 
-            # LR scheduler step
-            if scheduler is not None:
-                scheduler.step()
+            avg_train_loss = total_loss / len(train_iter.dataset)
+            print(f"Epoch {epoch} - Train Average Loss: {avg_train_loss:.6f}")
 
-            # print progress
-            if batch_idx % log_interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch, num_samples_iter, len(train_iter.dataset),
-                    100. * num_samples_iter / len(train_iter.dataset), loss_sum / num_samples_iter))
+            # ====== Validation ======
+            self.model.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for batch_data in val_iter:
+                    if isinstance(batch_data, (list, tuple)):
+                        data = batch_data[0]
+                    else:
+                        data = batch_data
+                    data = torch.tensor(data, dtype=torch.float).to(self.device)
 
-        train_loss = loss_sum / len(train_iter.dataset)
-        print(f'Train Average Loss: {train_loss}')
-        return train_loss
+                    outputs = self.model(data)
+                    loss = self.criterion(outputs, data)
+                    val_loss += loss.item() * data.size(0)
+
+            avg_val_loss = val_loss / len(val_iter.dataset)
+            print(f"Epoch {epoch} - Validation Average Loss: {avg_val_loss:.6f}")
+
+        return avg_train_loss, avg_val_loss
 
     def eval_model(criterion, model, model_type, val_iter, mode='Validation'):
         model.eval()
@@ -430,15 +454,12 @@ def plot_anomaly_distribution(errors, labels, threshold):
 
 def fit(train_iter, val_iter):
     print("fit with test model")
-    if train_iter is None:
-        if train_iter is not None:
-            losses = Lib_LSTMAE.model.train(train_iter)
-        else:
-            print("X_train is None")
-
+    if train_iter is not None:
+        print("Train")
+        avg_train_loss, avg_val_loss = Lib_LSTMAE.model.train(train_iter, val_iter)
+    elif train_iter is None:
+        print("eval")
+        losses = Lib_LSTMAE.model.train_with_eval()
     else:
-        if X_train is not None:
-            losses = Lib_LSTM.model.train_with_test(X_train, X_test)
-        else:
-            print("X_train is None")
-    return losses
+        print("Error")
+    return avg_train_loss, avg_val_loss
