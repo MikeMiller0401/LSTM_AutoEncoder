@@ -43,7 +43,7 @@ class Decoder(nn.Module):
         return dec_out, hidden_state
 
 
-# LSTM Auto-Encoder Class
+# LSTMAE Auto-Encoder Class
 class LSTMAE(nn.Module):
     def __init__(self, input_size, hidden_size, dropout_ratio, seq_len, use_act=True):
         super(LSTMAE, self).__init__()

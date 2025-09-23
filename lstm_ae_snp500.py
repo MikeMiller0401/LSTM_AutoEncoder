@@ -18,7 +18,7 @@ parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
 parser.add_argument('--epochs', type=int, default=2500, metavar='N', help='number of epochs to train')
 parser.add_argument('--optim', default='Adam', type=str, help='Optimizer to use')
-parser.add_argument('--hidden-size', type=int, default=256, metavar='N', help='LSTM hidden state size')
+parser.add_argument('--hidden-size', type=int, default=256, metavar='N', help='LSTMAE hidden state size')
 parser.add_argument('--lr', type=float, default=1e-3, metavar='LR', help='learning rate')
 parser.add_argument('--input-size', type=int, default=1, metavar='N', help='input size')
 parser.add_argument('--dropout', type=float, default=0.0, metavar='D', help='dropout ratio')
@@ -189,11 +189,11 @@ def get_model():
     """
     # Generate model
     if args.model_type == 'LSTMAE':
-        print('Creating LSTM AE model')
+        print('Creating LSTMAE AE model')
         model = LSTMAE(input_size=args.input_size, hidden_size=args.hidden_size, dropout_ratio=args.dropout,
                        seq_len=args.seq_len)
     elif args.model_type == 'LSTMAE_PRED':
-        print('Creating LSTM AE with Predictor')
+        print('Creating LSTMAE AE with Predictor')
         model = LSTMAEPRED(input_size=args.input_size, hidden_size=args.hidden_size, dropout_ratio=args.dropout,
                            seq_len=args.seq_len)
     else:

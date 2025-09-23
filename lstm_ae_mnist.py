@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser(description='LSTM_AE MNIST TASK')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N', help='input batch size for training (default: 128)')
 parser.add_argument('--epochs', type=int, default=300, metavar='N', help='number of epochs to train')
 parser.add_argument('--optim', default='Adam', type=str, help='Optimizer to use')
-parser.add_argument('--hidden-size', type=int, default=128, metavar='N', help='LSTM hidden state size')
+parser.add_argument('--hidden-size', type=int, default=128, metavar='N', help='LSTMAE hidden state size')
 parser.add_argument('--lr', type=float, default=1e-3, metavar='LR', help='learning rate')
 parser.add_argument('--input-size', type=int, default=28, metavar='N', help='input size')
 parser.add_argument('--dropout', type=float, default=0.0, metavar='D', help='dropout ratio')
@@ -24,7 +24,7 @@ parser.add_argument('--log-interval', type=int, default=100, metavar='N', help='
 parser.add_argument('--model-dir', default='trained_models', help='directory of model for saving checkpoint')
 parser.add_argument('--model-type', default='LSTMAE_CLF', help='type of model to use: LSTMAE or LSTMAE_CLF')
 parser.add_argument('--seq-len', default=28, help='sequence full length')
-parser.add_argument('--kernel-size', default=(1, 1), help='Kernel size for LSTM Conv AE')
+parser.add_argument('--kernel-size', default=(1, 1), help='Kernel size for LSTMAE Conv AE')
 parser.add_argument('--n-classes', default=10, help='number of classes in case of a lstm ae with clf')
 parser.add_argument('--scheduler', default=None, help='Learning rate scheduler type. if None - no lr scheduling')
 
@@ -57,7 +57,7 @@ test_iter = torch.utils.data.DataLoader(datasets.MNIST('data', train=False, tran
 
 def main():
     """
-    Function to train and evaluate LSTM-AE and LSTM-AE classifier on MNIST dataset.
+    Function to train and evaluate LSTMAE-AE and LSTMAE-AE classifier on MNIST dataset.
     """
     # Load model
     model = create_model()
@@ -170,15 +170,15 @@ def get_scheduler(optimizer):
 
 def create_model():
     """
-    Create the desired model - regular LSTM AE for reconstruction or LSTM AE for both reconstruction and classification.
+    Create the desired model - regular LSTMAE AE for reconstruction or LSTMAE AE for both reconstruction and classification.
     :return: model
     """
     if args.model_type == 'LSTMAE':
-        print('Creating LSTM AE model')
+        print('Creating LSTMAE AE model')
         model = LSTMAE(input_size=args.input_size, hidden_size=args.hidden_size, dropout_ratio=args.dropout,
                        seq_len=args.seq_len)
     elif args.model_type == 'LSTMAE_CLF':
-        print('Creating LSTM AE with classifier')
+        print('Creating LSTMAE AE with classifier')
         model = LSTMAECLF(input_size=args.input_size, hidden_size=args.hidden_size, dropout_ratio=args.dropout,
                           n_classes=args.n_classes, seq_len=args.seq_len)
     else:

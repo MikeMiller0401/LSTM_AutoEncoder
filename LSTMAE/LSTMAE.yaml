@@ -1,0 +1,7 @@
+model_name: LSTM_AE
+
+input_size: 1
+hidden_size: 256
+dropout_ratio: 0.0
+seq_len: 50
+device: 'cuda'

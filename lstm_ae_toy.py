@@ -10,7 +10,7 @@ from train_utils import train_model, eval_model
 
 parser = argparse.ArgumentParser(description='LSTM_AE TOY EXAMPLE')  # 建立一个命令行参数解析器，描述为 “LSTM_AE TOY EXAMPLE”
 # 训练控制
-parser.add_argument('--batch-size', type=int, default=128, metavar='N', elp='input batch size for training (default: 128)')  # 每个批次的数据量
+parser.add_argument('--batch-size', type=int, default=128, metavar='N', help='input batch size for training (default: 128)')  # 每个批次的数据量
 parser.add_argument('--epochs', type=int, default=1000, metavar='N', help='number of epochs to train')  # 总训练轮数，每一轮会遍历完整训练集一次。
 parser.add_argument('--optim', default='Adam', type=str, help='Optimizer to use')  # 默认优化器
 parser.add_argument('--lr', type=float, default=0.001, metavar='LR', help='learning rate')  # 学习率
@@ -18,11 +18,11 @@ parser.add_argument('--wd', type=float, default=0, metavar='WD', help='weight de
 parser.add_argument('--grad-clipping', type=float, default=None, metavar='GC', help='gradient clipping value')  # 梯度裁剪阈值，避免梯度爆炸
 parser.add_argument('--log-interval', type=int, default=10, metavar='N', help='how many batch iteration to log status')  # 每多少个 batch 打印一次训练日志
 # 模型结构
-parser.add_argument('--hidden-size', type=int, default=256, metavar='N', help='LSTM hidden state size')  # LSTM 隐藏层维度，决定模型容量
-parser.add_argument('--input-size', type=int, default=1, metavar='N', help='input size')  # LSTM 输入特征维度（比如单变量时间序列时是 1，多变量时可设大于 1）
+parser.add_argument('--hidden-size', type=int, default=256, metavar='N', help='LSTMAE hidden state size')  # LSTMAE 隐藏层维度，决定模型容量
+parser.add_argument('--input-size', type=int, default=1, metavar='N', help='input size')  # LSTMAE 输入特征维度（比如单变量时间序列时是 1，多变量时可设大于 1）
 parser.add_argument('--dropout', type=float, default=0.0, metavar='D', help='dropout ratio')  # dropout 比例，防止过拟合
 parser.add_argument('--model-type', default='LSTMAE', help='currently only LSTMAE')  # 模型类型
-parser.add_argument('--seq-len', default=50, help='sequence full size')  # 输入序列的时间步长度（即 LSTM 每次处理多少时间点）
+parser.add_argument('--seq-len', default=50, help='sequence full size')  # 输入序列的时间步长度（即 LSTMAE 每次处理多少时间点）
 # 输出与超参数
 parser.add_argument('--model-dir', default='trained_models', help='directory of model for saving checkpoint')  # 模型 checkpoint 保存路径
 parser.add_argument('--run-grid-search', action='store_true', default=False, help='Running hyper-parameters grid search')  # 是否运行超参数网格搜索
