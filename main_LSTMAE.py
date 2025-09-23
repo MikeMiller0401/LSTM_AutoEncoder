@@ -21,20 +21,26 @@ def lstmae_task():
 
     create_model(config)
     avg_train_loss, avg_val_loss = fit(train_iter, val_iter)  # 运行训练集和验证集
-    errors, labels, preds, threshold = test(test_iter)
 
+    # save module
+    save_dir = current_dir + "/LSTMAE/LSTMAE_model.pth"
+    save(save_dir)
+
+    # load module
+    load_dir = current_dir + "/LSTMAE/LSTMAE_model.pth"
+    load(load_dir)
+
+    # 运行测试集
+    errors, labels, preds, threshold = test(test_iter)
     print(f"Detection threshold={threshold:.4f}")  # 打印检测阈值
     # 计算预测精度 (preds 与真实标签 labels 的一致率)
     acc = (preds == labels).mean()
     print(f"Anomaly detection accuracy: {acc:.4f}")
-
     # 绘制重建误差分布
     plot_anomaly_distribution(errors, labels, threshold)
+    plot_losses(avg_train_loss, avg_val_loss)
     print("LSTM-AE Finished.")
 
 if __name__ == "__main__":
-    # 设置中文字体
-    plt.rcParams["font.family"] = ["SimHei"]
-    plt.rcParams["axes.unicode_minus"] = False
     # 运行任务
-    lstmae_task(device)
+    lstmae_task()

@@ -2,10 +2,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
-from jinja2.optimizer import optimize
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 def create_data_with_anomalies(num_of_sequences=10000, sequence_len=50, anomaly_ratio=0.05):
     # 正常数据（均匀分布）
@@ -171,7 +167,7 @@ class LSTMAE_Method():
         self.criterion = nn.MSELoss(reduction='sum')
 
     # 单个 batch 的训练
-    def train_with_batch(self, train_batch_data, device):
+    def train_with_batch(self, train_batch_data):
         model = self.model.train()
         criterion = self.criterion
         optimizer = self.optimizer
@@ -183,9 +179,9 @@ class LSTMAE_Method():
             batch_x = train_batch_data
 
         if isinstance(batch_x, torch.Tensor):
-            tensor_x = batch_x.float().to(device)
+            tensor_x = batch_x.float().to(self.device)
         else:
-            tensor_x = torch.tensor(batch_x, dtype=torch.float, device=device)
+            tensor_x = torch.tensor(batch_x, dtype=torch.float, device=self.device)
 
         # 前向传播
         outputs = model(tensor_x)
@@ -196,11 +192,12 @@ class LSTMAE_Method():
         loss.backward()
         optimizer.step()
 
-        return loss# 返回总损失（方便累积后再求平均）
+        return loss
 
     def train(self, train_iter, val_iter):
         num_epochs = 10 # 训练总epoch数量
         log_interval = 100 # 记录的log间隔次数
+        val_losses, train_losses = [], []
         for epoch in range(1, num_epochs + 1):
             # ====== Training ======
             self.model.train()
@@ -208,7 +205,7 @@ class LSTMAE_Method():
             num_samples = 0
 
             for batch_idx, batch_data in enumerate(train_iter, 1):
-                batch_loss = self.train_with_batch(batch_data, self.device)
+                batch_loss = self.train_with_batch(batch_data)
                 total_loss += batch_loss
                 if isinstance(batch_data, (list, tuple)):
                     batch_size = len(batch_data[0])
@@ -221,6 +218,7 @@ class LSTMAE_Method():
                           f"({100. * num_samples / len(train_iter.dataset):.0f}%)]\t"
                           f"Loss: {total_loss / num_samples:.6f}")
             avg_train_loss = total_loss / len(train_iter.dataset)
+            train_losses.append(avg_train_loss.detach().cpu().numpy())
             print(f"Epoch {epoch} - Train Average Loss: {avg_train_loss:.6f}")
 
             # ====== Validation ======
@@ -235,13 +233,14 @@ class LSTMAE_Method():
                     if isinstance(data, torch.Tensor):
                         data = data.float().to(self.device)
                     else:
-                        data = torch.tensor(data, dtype=torch.float, device=device)
+                        data = torch.tensor(data, dtype=torch.float, device=self.device)
                     outputs = self.model(data)
                     loss = self.criterion(outputs, data)
                     val_loss += loss
             avg_val_loss = val_loss / len(val_iter.dataset)
+            val_losses.append(avg_val_loss.detach().cpu().numpy())
             print(f"Epoch {epoch} - Validation Average Loss: {avg_val_loss:.6f}")
-        return avg_train_loss, avg_val_loss
+        return train_losses, val_losses
 
     def test(self, test_iter):
         self.model.eval()
@@ -261,7 +260,6 @@ class LSTMAE_Method():
         threshold = errors.mean() + 3 * errors.std()
         preds = (errors > threshold).astype(int)  # 预测结果：1=异常
         return errors, labels, preds, threshold
-
 
 class Lib_LSTMAE:
     model = None
@@ -289,6 +287,29 @@ def plot_anomaly_distribution(errors, labels, threshold):
     plt.legend()
     plt.show()
 
+def plot_losses(avg_train_loss, avg_val_loss):
+    plt.figure(figsize=(12, 6))
+    plt.subplot(2, 1, 1)
+    plt.title("Train Loss")
+    plt.plot(avg_train_loss, label='train_loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.subplot(2, 1, 2)
+    plt.title("Val Loss")
+    plt.plot(avg_val_loss, label='val_loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.show()
+
+
 def fit(train_iter, val_iter):
     avg_train_loss, avg_val_loss = Lib_LSTMAE.model.train(train_iter, val_iter)
     return avg_train_loss, avg_val_loss
+
+def save(file_name):
+    torch.save(Lib_LSTMAE.model, file_name)
+
+def load(file_name):
+    Lib_LSTMAE.model = torch.load(file_name, weights_only=False)
