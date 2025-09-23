@@ -7,8 +7,6 @@ Created on Thu Apr  9 16:31:29 2020
 """
 
 import numpy as np
-import copy
-# import h5py
 import scipy.io as sio
 import yaml
 from easydict import EasyDict

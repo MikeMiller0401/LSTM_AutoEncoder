@@ -155,7 +155,12 @@ class LSTMAE_Method():
         else:
             print("no num_layers value")
 
-        self.device = torch.device(config_device if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else
+            "mps" if torch.backends.mps.is_available() else
+            "cpu"
+        )
+        print(self.device)
 
         self.model = LSTMAE(input_size=config_input_size,
                             hidden_size=config_hidden_size,
@@ -170,7 +175,6 @@ class LSTMAE_Method():
         model = self.model.train()
         criterion = self.criterion
         optimizer = self.optimizer
-
 
         # 解包 batch 数据
         if isinstance(train_batch_data, (list, tuple)) and len(train_batch_data) == 2:
@@ -192,10 +196,10 @@ class LSTMAE_Method():
         loss.backward()
         optimizer.step()
 
-        return loss.item() * tensor_x.size(0)  # 返回总损失（方便累积后再求平均）
+        return loss# 返回总损失（方便累积后再求平均）
 
     def train(self, train_iter, val_iter):
-        num_epochs = 100 # 训练总epoch数量
+        num_epochs = 10 # 训练总epoch数量
         log_interval = 100 # 记录的log间隔次数
         for epoch in range(1, num_epochs + 1):
             # ====== Training ======
@@ -216,7 +220,6 @@ class LSTMAE_Method():
                     print(f"Train Epoch: {epoch} [{num_samples}/{len(train_iter.dataset)} "
                           f"({100. * num_samples / len(train_iter.dataset):.0f}%)]\t"
                           f"Loss: {total_loss / num_samples:.6f}")
-
             avg_train_loss = total_loss / len(train_iter.dataset)
             print(f"Epoch {epoch} - Train Average Loss: {avg_train_loss:.6f}")
 
@@ -229,54 +232,35 @@ class LSTMAE_Method():
                         data = batch_data[0]
                     else:
                         data = batch_data
-                    data = torch.tensor(data, dtype=torch.float).to(self.device)
-
+                    if isinstance(data, torch.Tensor):
+                        data = data.float().to(self.device)
+                    else:
+                        data = torch.tensor(data, dtype=torch.float, device=device)
                     outputs = self.model(data)
                     loss = self.criterion(outputs, data)
-                    val_loss += loss.item() * data.size(0)
-
+                    val_loss += loss
             avg_val_loss = val_loss / len(val_iter.dataset)
             print(f"Epoch {epoch} - Validation Average Loss: {avg_val_loss:.6f}")
-
         return avg_train_loss, avg_val_loss
 
-    def eval_model(criterion, model, model_type, val_iter, mode='Validation'):
-        model.eval()
-        loss_sum = 0
-        correct_sum = 0
+    def test(self, test_iter):
+        self.model.eval()
+        errors, labels = [], []
         with torch.no_grad():
-            for data in val_iter:
-                if len(data) == 2:
-                    data, labels = data[0].to(device), data[1].to(device)
-                else:
-                    data = data.to(device)
+            for seq, lbl in test_iter:
+                seq = seq.to(self.device)
+                rec = self.model(seq)
 
-                model_out = model(data)
-                if model_type == 'LSTMAE_CLF':
-                    model_out, out_labels = model_out
-                    pred = out_labels.max(1, keepdim=True)[1]
-                    correct_sum += pred.eq(labels.view_as(pred)).sum().item()
-                    # Calculate loss
-                    mse_loss, ce_loss = criterion(model_out, data, out_labels, labels)
-                    loss = mse_loss + ce_loss
-                elif model_type == 'LSTMAE_PRED':
-                    # For S&P prediction
-                    model_out, preds = model_out
-                    labels = data.squeeze()[:, 1:]  # Take x_t+1 as y_t
-                    preds = preds[:, :-1]  # Take preds up to T-1
-                    mse_rec, mse_pred = criterion(model_out, data, preds, labels)
-                    loss = mse_rec + mse_pred
-                else:
-                    # Calculate loss for none clf models
-                    loss = criterion(model_out, data)
+                # 对每个样本单独计算重建误差 (MSE)
+                batch_errors = torch.mean((rec - seq) ** 2, dim=(1, 2))  # shape: [batch_size]
+                errors.extend(batch_errors.cpu().numpy())
+                labels.extend(lbl.cpu().numpy())
 
-                loss_sum += loss.item()
-        val_loss = loss_sum / len(val_iter.dataset)
-        val_acc = round(correct_sum / len(val_iter.dataset) * 100, 2)
-        acc_out_str = f'; Average Accuracy: {val_acc}' if model_type == 'LSTMAECLF' else ''
-        print(f' {mode}: Average Loss: {val_loss}{acc_out_str}')
-        return val_loss, val_acc
-
+        errors = np.array(errors)
+        labels = np.array(labels)
+        threshold = errors.mean() + 3 * errors.std()
+        preds = (errors > threshold).astype(int)  # 预测结果：1=异常
+        return errors, labels, preds, threshold
 
 
 class Lib_LSTMAE:
@@ -288,155 +272,8 @@ def create_model(config):
     else:
         print("Config is None")
 
-def train_model(criterion, epoch, model, model_type, optimizer, train_iter, batch_size, clip_val, log_interval, scheduler=None):
-    """
-    Function to run training epoch
-    :param criterion: loss function to use
-    :param epoch: current epoch index
-    :param model: pytorch model object
-    :param model_type: model type (only ae/ ae+clf), used to know if needs to calculate accuracy
-    :param optimizer: optimizer to use
-    :param train_iter: train dataloader
-    :param batch_size: size of batch (for logging)
-    :param clip_val: gradient clipping value
-    :param log_interval: interval to log progress
-    :param scheduler: learning rate scheduler, optional.
-    :return mean train loss (and accuracy if in clf mode)
-    """
-    model.train()
-    loss_sum = 0
-    pred_loss_sum = 0
-    correct_sum = 0
-
-    num_samples_iter = 0
-    for batch_idx, data in enumerate(train_iter, 1):
-        if len(data) == 2:
-            data, labels = data[0].to(device), data[1].to(device)
-        else:
-            data = data.to(device)
-        # Zero gradients
-        optimizer.zero_grad()
-
-        num_samples_iter += len(data)  # Count number of samples seen in epoch (used for later statistics)
-
-        # Forward pass & loss calculation
-        model_out = model(data)
-        if model_type == 'LSTMAE_CLF':
-            # For MNIST classifier
-            model_out, out_labels = model_out
-            pred = out_labels.max(1, keepdim=True)[1]
-            correct_sum += pred.eq(labels.view_as(pred)).sum().item()
-            # Calculate loss
-            mse_loss, ce_loss = criterion(model_out, data, out_labels, labels)
-            loss = mse_loss + ce_loss
-        elif model_type == 'LSTMAE_PRED':
-            # For S&P prediction
-            model_out, preds = model_out
-            labels = data.squeeze()[:, 1:]  # Take x_t+1 as y_t
-            preds = preds[:, :-1]  # Take preds up to T-1
-            mse_rec, mse_pred = criterion(model_out, data, preds, labels)
-            loss = mse_rec + mse_pred
-            pred_loss_sum += mse_pred.item()
-        else:
-            # Calculate loss
-            loss = criterion(model_out, data)
-
-        # Backward pass
-        loss.backward()
-        loss_sum += loss.item()
-
-        # Gradient clipping
-        if clip_val is not None:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), clip_val)
-
-        # Update model params
-        optimizer.step()
-
-        # LR scheduler step
-        if scheduler is not None:
-            scheduler.step()
-
-        # print progress
-        if batch_idx % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, num_samples_iter, len(train_iter.dataset),
-                100. * num_samples_iter / len(train_iter.dataset), loss_sum / num_samples_iter))
-    train_loss = loss_sum / len(train_iter.dataset)
-    train_pred_loss = pred_loss_sum / len(train_iter.dataset)
-    train_acc = round(correct_sum / len(train_iter.dataset) * 100, 2)
-    acc_out_str = f'; Average Accuracy: {train_acc}' if model_type == 'LSTMAECLF' else ''
-    print(f'Train Average Loss: {train_loss}{acc_out_str}')
-
-    return train_loss, train_acc, train_pred_loss
-
-def eval_model(criterion, model, model_type, val_iter, mode='Validation'):
-    """
-    Function to run validation on given model
-    :param criterion: loss function
-    :param model: pytorch model object
-    :param model_type: model type (only ae/ ae+clf), used to know if needs to calculate accuracy
-    :param val_iter: validation dataloader
-    :param mode: mode: 'Validation' or 'Test' - depends on the dataloader given.Used for logging
-    :return mean validation loss (and accuracy if in clf mode)
-    """
-    # Validation loop
-    model.eval()
-    loss_sum = 0
-    correct_sum = 0
-    with torch.no_grad():
-        for data in val_iter:
-            if len(data) == 2:
-                data, labels = data[0].to(device), data[1].to(device)
-            else:
-                data = data.to(device)
-
-            model_out = model(data)
-            if model_type == 'LSTMAE_CLF':
-                model_out, out_labels = model_out
-                pred = out_labels.max(1, keepdim=True)[1]
-                correct_sum += pred.eq(labels.view_as(pred)).sum().item()
-                # Calculate loss
-                mse_loss, ce_loss = criterion(model_out, data, out_labels, labels)
-                loss = mse_loss + ce_loss
-            elif model_type == 'LSTMAE_PRED':
-                # For S&P prediction
-                model_out, preds = model_out
-                labels = data.squeeze()[:, 1:]  # Take x_t+1 as y_t
-                preds = preds[:, :-1]  # Take preds up to T-1
-                mse_rec, mse_pred = criterion(model_out, data, preds, labels)
-                loss = mse_rec + mse_pred
-            else:
-                # Calculate loss for none clf models
-                loss = criterion(model_out, data)
-
-            loss_sum += loss.item()
-    val_loss = loss_sum / len(val_iter.dataset)
-    val_acc = round(correct_sum / len(val_iter.dataset) * 100, 2)
-    acc_out_str = f'; Average Accuracy: {val_acc}' if model_type == 'LSTMAECLF' else ''
-    print(f' {mode}: Average Loss: {val_loss}{acc_out_str}')
-    return val_loss, val_acc
-
-def detect_anomalies(model, test_iter, criterion, threshold=None):
-    model.eval()
-    errors, labels = [], []
-    with torch.no_grad():
-        for seq, lbl in test_iter:
-            seq = seq.to(device)
-            rec = model(seq)
-
-            # 对每个样本单独计算重建误差 (MSE)
-            batch_errors = torch.mean((rec - seq) ** 2, dim=(1, 2))  # shape: [batch_size]
-            errors.extend(batch_errors.cpu().numpy())
-            labels.extend(lbl.cpu().numpy())
-
-    errors = np.array(errors)
-    labels = np.array(labels)
-
-    # 如果没给阈值，就用均值+3倍标准差
-    if threshold is None:
-        threshold = errors.mean() + 3 * errors.std()
-
-    preds = (errors > threshold).astype(int)  # 预测结果：1=异常
+def test(test_iter):
+    errors, labels, preds, threshold = Lib_LSTMAE.model.test(test_iter)
     return errors, labels, preds, threshold
 
 def plot_anomaly_distribution(errors, labels, threshold):
@@ -453,13 +290,5 @@ def plot_anomaly_distribution(errors, labels, threshold):
     plt.show()
 
 def fit(train_iter, val_iter):
-    print("fit with test model")
-    if train_iter is not None:
-        print("Train")
-        avg_train_loss, avg_val_loss = Lib_LSTMAE.model.train(train_iter, val_iter)
-    elif train_iter is None:
-        print("eval")
-        losses = Lib_LSTMAE.model.train_with_eval()
-    else:
-        print("Error")
+    avg_train_loss, avg_val_loss = Lib_LSTMAE.model.train(train_iter, val_iter)
     return avg_train_loss, avg_val_loss
